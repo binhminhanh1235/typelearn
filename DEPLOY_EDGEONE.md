@@ -113,7 +113,32 @@ CLI sẽ tải lên tài nguyên tĩnh và liên kết thư mục `edge-function
 
 ---
 
-## 4. Nghiệm thu & Kiểm tra Sau khi Triển khai
+## 4. Tự động hóa Triển khai với GitHub Actions (CI/CD)
+
+Dự án đã tích hợp sẵn workflow tự động tại `.github/workflows/ci-cd.yml`. Mỗi khi bạn push commit lên nhánh `master` hoặc `main`:
+1. **Kiểm thử tự động (Unit Test)**: Chạy 11 test suites kiểm tra markdown parser, typing engine xử lý IME tiếng Việt và V8 handlers.
+2. **Đóng gói (Build)**: Tối ưu hóa bundle Vite + Preact.
+3. **Triển khai lên EdgeOne Pages**: Tự động gọi EdgeOne CLI để deploy lên môi trường Production.
+
+### Các bước kích hoạt CI/CD Deploy:
+1. Lấy API Token từ EdgeOne Console:
+   - Truy cập: [EdgeOne Pages Settings (China)](https://console.cloud.tencent.com/edgeone/pages?tab=settings) hoặc [EdgeOne Pages Settings (Global)](https://console.intl.cloud.tencent.com/edgeone/pages?tab=settings).
+   - Vào mục **API Token** -> Bấm **Create Token** và sao chép mã token.
+2. Cấu hình GitHub Secret:
+   - Mở repository trên GitHub: `https://github.com/binhminhanh1235/typelearn`
+   - Vào **Settings** -> **Secrets and variables** -> **Actions**.
+   - Bấm **New repository secret**:
+     - **Name**: `EDGEONE_TOKEN`
+     - **Secret**: Dán API Token bạn vừa sao chép.
+3. *(Tùy chọn)* Cấu hình tên dự án nếu muốn khác `typelearn`:
+   - Trong **Settings** -> **Secrets and variables** -> **Actions** -> tab **Variables**.
+   - Thêm Variable `EDGEONE_PROJECT_NAME` với giá trị tên dự án của bạn trên EdgeOne.
+
+Sau khi thiết lập, mọi commit đẩy lên `master` sẽ tự động kích hoạt workflow, chạy kiểm thử và cập nhật ngay lên EdgeOne Pages.
+
+---
+
+## 5. Nghiệm thu & Kiểm tra Sau khi Triển khai
 
 Sau khi deploy thành công, bạn sẽ nhận được URL truy cập (mặc định dạng `https://<project-id>.edgeone.cool?eo_token=...` hoặc custom domain đã gán):
 
@@ -133,7 +158,7 @@ Sau khi deploy thành công, bạn sẽ nhận được URL truy cập (mặc đ
 
 ---
 
-## 5. Các Lỗi Thường Gặp & Cách Khắc Phục (Troubleshooting)
+## 6. Các Lỗi Thường Gặp & Cách Khắc Phục (Troubleshooting)
 
 | Hiện tượng | Nguyên nhân | Cách khắc phục |
 |---|---|---|

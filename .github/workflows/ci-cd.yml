@@ -1,4 +1,4 @@
-name: TypeLearn CI/CD
+name: TypeLearn CI/CD — EdgeOne Pages
 
 on:
   push:
@@ -11,9 +11,13 @@ on:
       - main
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test-and-build:
-    name: Test & Build
+    name: 🧪 Test & Build
     runs-on: ubuntu-latest
 
     steps:
@@ -40,12 +44,12 @@ jobs:
         with:
           name: dist-artifacts
           path: dist/
-          retention-days: 7
+          retention-days: 5
 
-  deploy:
-    name: Deploy to EdgeOne Pages
+  deploy-edgeone:
+    name: 🚀 Deploy to Tencent EdgeOne Pages
     needs: test-and-build
-    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
+    if: (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
 
     steps:
@@ -63,14 +67,55 @@ jobs:
         with:
           node-version: 20
 
-      - name: Deploy to Tencent EdgeOne Pages
+      - name: Deploy to EdgeOne Pages via EdgeOne CLI
+        id: deploy
         env:
           PAGES_SOURCE: skills
           EDGEONE_TOKEN: ${{ secrets.EDGEONE_TOKEN }}
+          PROJECT_NAME: ${{ vars.EDGEONE_PROJECT_NAME || 'typelearn' }}
         run: |
-          if [ -n "$EDGEONE_TOKEN" ]; then
-            echo "EDGEONE_TOKEN found. Deploying to EdgeOne Pages..."
-            npx --yes edgeone@latest makers deploy ./dist -t "$EDGEONE_TOKEN" --json
+          if [ -z "$EDGEONE_TOKEN" ]; then
+            echo "::warning::Secret EDGEONE_TOKEN chưa được cấu hình trong GitHub Repository Secrets."
+            echo "### ⚠️ Chưa cấu hình EDGEONE_TOKEN" >> $GITHUB_STEP_SUMMARY
+            echo "Để tự động deploy lên EdgeOne Pages qua GitHub Actions, vui lòng thêm Secret:" >> $GITHUB_STEP_SUMMARY
+            echo "1. Vào **Settings -> Secrets and variables -> Actions** của repo." >> $GITHUB_STEP_SUMMARY
+            echo "2. Nhấn **New repository secret**." >> $GITHUB_STEP_SUMMARY
+            echo "3. Tên Secret: \`EDGEONE_TOKEN\`." >> $GITHUB_STEP_SUMMARY
+            echo "4. Giá trị: Lấy API Token từ [EdgeOne Pages Console](https://console.cloud.tencent.com/edgeone/pages?tab=settings)." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> 💡 **Lưu ý**: Nếu bạn đã liên kết kho GitHub trực tiếp trong Web Console của EdgeOne Pages (Git Integration), EdgeOne sẽ tự động bắt sự kiện push để deploy." >> $GITHUB_STEP_SUMMARY
+            exit 0
+          fi
+
+          echo "Bắt đầu triển khai dự án '$PROJECT_NAME' lên EdgeOne Pages..."
+          
+          # Thực hiện deploy với EdgeOne CLI bản mới nhất ở chế độ JSON non-interactive
+          DEPLOY_OUTPUT=$(npx --yes edgeone@latest makers deploy -n "$PROJECT_NAME" -t "$EDGEONE_TOKEN" --json)
+          
+          # Trích xuất dòng JSON cuối cùng
+          LAST_LINE=$(echo "$DEPLOY_OUTPUT" | tail -n 1)
+          echo "Kết quả: $LAST_LINE"
+
+          STATUS=$(echo "$LAST_LINE" | node -e "let d=JSON.parse(require('fs').readFileSync(0,'utf-8')); console.log(d.status || '');")
+          DEPLOY_URL=$(echo "$LAST_LINE" | node -e "let d=JSON.parse(require('fs').readFileSync(0,'utf-8')); console.log(d.url || '');")
+          CONSOLE_URL=$(echo "$LAST_LINE" | node -e "let d=JSON.parse(require('fs').readFileSync(0,'utf-8')); console.log(d.consoleUrl || '');")
+          PROJECT_ID=$(echo "$LAST_LINE" | node -e "let d=JSON.parse(require('fs').readFileSync(0,'utf-8')); console.log(d.projectId || '');")
+
+          if [ "$STATUS" = "success" ]; then
+            echo "::notice::Triển khai thành công! Live URL: $DEPLOY_URL"
+            echo "### 🚀 Triển khai EdgeOne Pages thành công!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- 🌐 **Live URL**: $DEPLOY_URL" >> $GITHUB_STEP_SUMMARY
+            echo "- ⚙️ **Project ID**: \`$PROJECT_ID\`" >> $GITHUB_STEP_SUMMARY
+            if [ -n "$CONSOLE_URL" ]; then
+              echo "- 📊 **EdgeOne Console**: [$CONSOLE_URL]($CONSOLE_URL)" >> $GITHUB_STEP_SUMMARY
+            fi
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> ⚠️ **Lưu ý**: Giữ nguyên toàn bộ tham số query (\`?eo_token=...\`) khi truy cập link preview để tránh lỗi 401." >> $GITHUB_STEP_SUMMARY
           else
-            echo "::notice::No EDGEONE_TOKEN secret detected. If your repository is connected directly via Tencent EdgeOne Pages Web Console (Git Integration), EdgeOne will automatically deploy on push."
+            ERROR_MSG=$(echo "$LAST_LINE" | node -e "let d=JSON.parse(require('fs').readFileSync(0,'utf-8')); console.log(d.error || 'Unknown error');")
+            echo "::error::Deploy thất bại: $ERROR_MSG"
+            echo "### ❌ Triển khai thất bại" >> $GITHUB_STEP_SUMMARY
+            echo "**Chi tiết lỗi**: $ERROR_MSG" >> $GITHUB_STEP_SUMMARY
+            exit 1
           fi
