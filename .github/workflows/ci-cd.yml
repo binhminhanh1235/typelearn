@@ -1,0 +1,76 @@
+name: TypeLearn CI/CD
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  pull_request:
+    branches:
+      - master
+      - main
+  workflow_dispatch:
+
+jobs:
+  test-and-build:
+    name: Test & Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Unit Tests
+        run: npm test
+
+      - name: Build Frontend & Assets
+        run: npm run build
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-artifacts
+          path: dist/
+          retention-days: 7
+
+  deploy:
+    name: Deploy to EdgeOne Pages
+    needs: test-and-build
+    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download Build Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-artifacts
+          path: dist/
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Deploy to Tencent EdgeOne Pages
+        env:
+          PAGES_SOURCE: skills
+          EDGEONE_TOKEN: ${{ secrets.EDGEONE_TOKEN }}
+        run: |
+          if [ -n "$EDGEONE_TOKEN" ]; then
+            echo "EDGEONE_TOKEN found. Deploying to EdgeOne Pages..."
+            npx --yes edgeone@latest makers deploy ./dist -t "$EDGEONE_TOKEN" --json
+          else
+            echo "::notice::No EDGEONE_TOKEN secret detected. If your repository is connected directly via Tencent EdgeOne Pages Web Console (Git Integration), EdgeOne will automatically deploy on push."
+          fi
