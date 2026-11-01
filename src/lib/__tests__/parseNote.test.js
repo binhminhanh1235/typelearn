@@ -55,4 +55,21 @@ describe('parseNote & normalizeTextForTyping', () => {
     expect(clean).not.toContain('<script>');
     expect(clean).toContain('<strong>bold</strong>');
   });
+
+  it('gắn thông tin sơ đồ flow (flowCode / flows) vào các khối text trong cùng phân đoạn heading', () => {
+    const sagaNote = SEED_NOTES[0];
+    const parsed = parseNote(sagaNote.md);
+    const textBlocks = parsed.blocks.filter((b) => b.type === 'text');
+
+    // Section 1 ("Core Concept") có 2 đoạn văn + 1 sơ đồ mermaid sequenceDiagram
+    expect(textBlocks[0].sectionHeading).toBe('Core Concept');
+    expect(textBlocks[0].flowCode).toContain('sequenceDiagram');
+    expect(textBlocks[0].flows.length).toBe(1);
+    expect(textBlocks[1].flowCode).toContain('sequenceDiagram');
+
+    // Section 2 ("Coordination Approaches") có 3 mục danh sách và không có sơ đồ mermaid
+    expect(textBlocks[2].sectionHeading).toBe('Coordination Approaches');
+    expect(textBlocks[2].flowCode).toBeNull();
+    expect(textBlocks[2].flows).toEqual([]);
+  });
 });

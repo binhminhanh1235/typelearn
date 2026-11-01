@@ -72,6 +72,11 @@ const DEFAULT_SETTINGS = {
   forceCorrection: true,
   soundEnabled: true,
   ttsRate: 1.0,
+  ttsVoiceURI: '',
+  ttsVoiceVi: '',
+  ttsVoiceEn: '',
+  ttsPitch: 1.0,
+  ttsVolume: 1.0,
   ignoreCase: false,
   ignorePunctuation: false,
   dictationMode: false

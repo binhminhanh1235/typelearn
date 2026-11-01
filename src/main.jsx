@@ -21,6 +21,8 @@ import { Note } from './pages/Note.jsx';
 import { Typing } from './pages/Typing.jsx';
 import { Summary } from './pages/Summary.jsx';
 import { SettingsModal } from './components/SettingsModal.jsx';
+import { TtsSettingsModal } from './components/TtsSettingsModal.jsx';
+import { openTtsSettings } from './lib/speech.js';
 
 function App() {
   const [view, setView] = useState('library'); // 'library' | 'add' | 'edit' | 'note' | 'typing' | 'summary'
@@ -152,6 +154,15 @@ function App() {
             >
               ⚙️ Cài đặt & Đồng bộ
             </button>
+            <button
+              type="button"
+              class="btn btn-sm"
+              onClick={openTtsSettings}
+              aria-keyshortcuts="Alt+T"
+              title="Cài đặt giọng đọc (Alt+T)"
+            >
+              🎙️ Giọng đọc
+            </button>
           </nav>
         </header>
       )}
@@ -253,6 +264,7 @@ function App() {
         />
       )}
 
+      <TtsSettingsModal />
       <SettingsModal
         isOpen={settingsOpen}
         onClose={() => setSettingsOpen(false)}

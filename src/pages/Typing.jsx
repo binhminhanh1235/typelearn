@@ -1,7 +1,15 @@
 import { useState, useEffect, useMemo } from 'preact/hooks';
 import { parseNote } from '../lib/parseNote.js';
 import { TypingBlock } from '../components/TypingBlock.jsx';
-import { speakText, stopSpeaking } from '../lib/speech.js';
+import { MermaidBlock } from '../components/MermaidBlock.jsx';
+import {
+  TTS_RATE_OPTIONS,
+  getAvailableVoices,
+  subscribeVoicesChanged,
+  speakText,
+  stopSpeaking,
+  openTtsSettings
+} from '../lib/speech.js';
 import { getSettings, updateSettings, saveNoteSessionStats, getSyncCode } from '../lib/storage.js';
 import { pushStatsToKV } from '../lib/api.js';
 import { calculateWpm, formatDuration } from '../lib/typingEngine.js';
@@ -31,13 +39,55 @@ export function Typing({
   });
   const [completedHistory, setCompletedHistory] = useState([]);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [showFlowDiagram, setShowFlowDiagram] = useState(true);
 
-  const currentBlock = textBlocks[blockIdx] || { text: '' };
+  const currentBlock = textBlocks[blockIdx] || { text: '', flowCode: null, flows: [] };
   const lang = parsed.meta.lang || note?.lang || 'en-US';
+  const [voices, setVoices] = useState(() => getAvailableVoices(lang));
+
+  useEffect(() => {
+    setVoices(getAvailableVoices(lang));
+    return subscribeVoicesChanged(() => {
+      setVoices(getAvailableVoices(lang));
+    });
+  }, [lang]);
+
+  const activeFlows = useMemo(() => {
+    if (Array.isArray(currentBlock.flows) && currentBlock.flows.length > 0) {
+      return currentBlock.flows;
+    }
+    if (currentBlock.flowCode) {
+      return [currentBlock.flowCode];
+    }
+    return [];
+  }, [currentBlock]);
 
   useEffect(() => {
     return () => stopSpeaking();
   }, []);
+
+  const refocusTypingInput = () => {
+    if (typeof document !== 'undefined') {
+      const inputEl = document.querySelector('.typing-hidden-input');
+      if (inputEl && typeof inputEl.focus === 'function') {
+        inputEl.focus();
+      }
+    }
+  };
+
+  const handleVoiceChange = (e) => {
+    const nextVoice = e.currentTarget.value;
+    const next = updateSettings({ ttsVoiceURI: nextVoice });
+    setSettings(next);
+    refocusTypingInput();
+  };
+
+  const handleRateChange = (e) => {
+    const nextRate = parseFloat(e.currentTarget.value) || 1.0;
+    const next = updateSettings({ ttsRate: nextRate });
+    setSettings(next);
+    refocusTypingInput();
+  };
 
   // Tự động đọc TTS nếu đang bật chế độ Chép chính tả (Dictation) khi sang khối mới
   useEffect(() => {
@@ -49,9 +99,11 @@ export function Typing({
   const triggerTts = (txt = currentBlock.text) => {
     if (!txt) return;
     setIsSpeaking(true);
+    const latestSettings = getSettings();
     speakText(txt, {
       lang,
-      rate: settings.ttsRate || 1.0,
+      rate: Number(settings.ttsRate || latestSettings.ttsRate || 1.0),
+      voiceURI: settings.ttsVoiceURI || latestSettings.ttsVoiceURI || '',
       onEnd: () => setIsSpeaking(false),
       onError: () => setIsSpeaking(false)
     });
@@ -60,6 +112,7 @@ export function Typing({
   const handleToggleSetting = (key) => {
     const next = updateSettings({ [key]: !settings[key] });
     setSettings(next);
+    refocusTypingInput();
   };
 
   const handleRetryBlock = () => {
@@ -132,6 +185,8 @@ export function Typing({
   // Phím tắt toàn cục trên màn hình Gõ: Enter (khi xong khối), Tab / Ctrl+R (gõ lại), Esc (thoát), Ctrl/Cmd+J (TTS)
   useEffect(() => {
     const handleKeyDown = (e) => {
+      if (document.querySelector('.tts-modal')) return;
+      if (e.altKey && e.key.toLowerCase() === 't') return;
       if (e.key === 'Escape') {
         e.preventDefault();
         stopSpeaking();
@@ -151,11 +206,19 @@ export function Typing({
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'j') {
         e.preventDefault();
         triggerTts(currentBlock.text);
+        return;
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentBlock.text, blockIdx, settings.ttsRate, liveState.isCompleted, completedHistory]);
+  }, [
+    currentBlock.text,
+    blockIdx,
+    liveState.isCompleted,
+    completedHistory,
+    settings.ttsRate,
+    settings.ttsVoiceURI
+  ]);
 
   const progressPercent =
     textBlocks.length > 0
@@ -218,13 +281,56 @@ export function Typing({
             {settings.soundEnabled ? '🔔 Âm phím: Bật' : '🔕 Âm phím: Tắt'}
           </button>
 
-          <button
-            type="button"
-            class={`btn btn-sm ${isSpeaking ? 'btn-active' : ''}`}
-            onClick={() => triggerTts(currentBlock.text)}
-          >
-            🔊 Nghe TTS (<kbd>Ctrl+J</kbd>)
-          </button>
+          <div class="tts-controls-group" role="group" aria-label="Điều khiển giọng đọc và tốc độ TTS">
+            <button
+              type="button"
+              class={`btn btn-sm ${isSpeaking ? 'btn-active' : ''}`}
+              onClick={() => {
+                triggerTts(currentBlock.text);
+                refocusTypingInput();
+              }}
+            >
+              🔊 Nghe TTS (<kbd>Ctrl+J</kbd>)
+            </button>
+
+            <select
+              class="tts-select tts-voice-select"
+              aria-label="Chọn giọng đọc TTS"
+              title="Chọn giọng đọc TTS"
+              value={settings.ttsVoiceURI || ''}
+              onChange={handleVoiceChange}
+            >
+              <option value="">🎙️ Giọng: Tự động ({lang})</option>
+              {voices.map((v) => (
+                <option key={v.voiceURI || v.name} value={v.voiceURI || v.name}>
+                  {v.name} ({v.lang})
+                </option>
+              ))}
+            </select>
+
+            <select
+              class="tts-select tts-rate-select tabular-nums"
+              aria-label="Tốc độ đọc TTS"
+              title="Tốc độ đọc TTS"
+              value={String(Number(settings.ttsRate || 1))}
+              onChange={handleRateChange}
+            >
+              {TTS_RATE_OPTIONS.map((r) => (
+                <option key={r} value={String(r)}>
+                  {Number.isInteger(r) ? `${r.toFixed(1)}x` : `${r}x`}
+                </option>
+              ))}
+            </select>
+
+            <button
+              type="button"
+              class="btn btn-sm"
+              onClick={openTtsSettings}
+              title="Cài đặt giọng đọc (Alt+T)"
+            >
+              🎙️ Giọng đọc (<kbd>Alt+T</kbd>)
+            </button>
+          </div>
 
           <button
             type="button"
@@ -259,6 +365,39 @@ export function Typing({
           </button>
         </div>
 
+        <div class={`typing-workspace ${activeFlows.length > 0 ? 'has-flow' : ''}`}>
+        {activeFlows.length > 0 && (
+          <section
+            class="typing-flow-panel"
+            aria-label="Sơ đồ luồng đi kèm đoạn văn đang gõ"
+          >
+            <div class="typing-flow-panel-header">
+              <span class="typing-flow-panel-title">
+                📊 Sơ đồ luồng minh hoạ
+                {currentBlock.sectionHeading ? ` · ${currentBlock.sectionHeading}` : ''}
+              </span>
+              <button
+                type="button"
+                class="btn btn-sm btn-ghost typing-flow-toggle-btn"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  setShowFlowDiagram((prev) => !prev);
+                  refocusTypingInput();
+                }}
+              >
+                {showFlowDiagram ? 'Thu gọn sơ đồ ▲' : 'Hiện sơ đồ ▼'}
+              </button>
+            </div>
+            {showFlowDiagram && (
+              <div class="typing-flow-panel-body" onClick={refocusTypingInput}>
+                {activeFlows.map((flowCode, idx) => (
+                  <MermaidBlock key={`${idx}-${flowCode}`} code={flowCode} />
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+        <div class="typing-main-col">
         <TypingBlock
           text={currentBlock.text}
           lang={lang}
@@ -301,6 +440,8 @@ export function Typing({
           >
             Kết thúc & Xem tổng kết
           </button>
+        </div>
+        </div>
         </div>
       </main>
 

@@ -2,8 +2,15 @@ import { useState, useEffect, useMemo } from 'preact/hooks';
 import { parseNote } from '../lib/parseNote.js';
 import { CodeBlock } from '../components/CodeBlock.jsx';
 import { MermaidBlock } from '../components/MermaidBlock.jsx';
-import { speakText, stopSpeaking } from '../lib/speech.js';
-import { getAdminToken, setAdminToken, getSettings } from '../lib/storage.js';
+import {
+  TTS_RATE_OPTIONS,
+  getAvailableVoices,
+  subscribeVoicesChanged,
+  speakText,
+  stopSpeaking,
+  openTtsSettings
+} from '../lib/speech.js';
+import { getAdminToken, setAdminToken, getSettings, updateSettings } from '../lib/storage.js';
 import { deleteNote } from '../lib/api.js';
 
 export function Note({
@@ -18,8 +25,31 @@ export function Note({
   const [adminTokenInput, setAdminTokenInput] = useState(getAdminToken() || 'admin123');
   const [deleteError, setDeleteError] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [settings, setSettings] = useState(() => getSettings());
 
   const parsed = useMemo(() => parseNote(note?.md || ''), [note?.md]);
+  const lang = parsed.meta.lang || note?.lang || 'en-US';
+  const [voices, setVoices] = useState(() => getAvailableVoices(lang));
+
+  useEffect(() => {
+    setVoices(getAvailableVoices(lang));
+    return subscribeVoicesChanged(() => {
+      setVoices(getAvailableVoices(lang));
+    });
+  }, [lang]);
+
+  const handleVoiceChange = (e) => {
+    const nextVoice = e.currentTarget.value;
+    const next = updateSettings({ ttsVoiceURI: nextVoice });
+    setSettings(next);
+  };
+
+  const handleRateChange = (e) => {
+    const nextRate = parseFloat(e.currentTarget.value) || 1.0;
+    const next = updateSettings({ ttsRate: nextRate });
+    setSettings(next);
+  };
+
   const headings = useMemo(
     () => parsed.blocks.filter((b) => b.type === 'heading'),
     [parsed.blocks]
@@ -32,6 +62,7 @@ export function Note({
   // Phím tắt Ctrl/Cmd + J đọc toàn bộ các khối văn bản trong bài
   useEffect(() => {
     const handleKeyDown = (e) => {
+      if (document.querySelector('.tts-modal')) return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'j') {
         e.preventDefault();
         const allText = parsed.blocks
@@ -53,11 +84,11 @@ export function Note({
       setSpeakingIdx(null);
       return;
     }
-    const settings = getSettings();
     setSpeakingIdx(idOrIdx);
     speakText(textContent, {
-      lang: parsed.meta.lang || note?.lang || 'en-US',
+      lang,
       rate: settings.ttsRate || 1.0,
+      voiceURI: settings.ttsVoiceURI || '',
       onEnd: () => setSpeakingIdx(null),
       onError: () => setSpeakingIdx(null)
     });
@@ -90,20 +121,60 @@ export function Note({
           ← Về Kho kiến thức
         </button>
 
-        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-          <button
-            type="button"
-            class={`btn ${speakingIdx === 'ALL' ? 'btn-active' : ''}`}
-            onClick={() => {
-              const allText = parsed.blocks
-                .filter((b) => b.type === 'text')
-                .map((b) => b.text)
-                .join('. ');
-              handleSpeakBlock('ALL', allText);
-            }}
-          >
-            {speakingIdx === 'ALL' ? '⏹ Dừng đọc' : '🔊 Nghe toàn bài (Ctrl+J)'}
-          </button>
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <div class="tts-controls-group" role="group" aria-label="Điều khiển giọng đọc và tốc độ TTS">
+            <button
+              type="button"
+              class={`btn ${speakingIdx === 'ALL' ? 'btn-active' : ''}`}
+              onClick={() => {
+                const allText = parsed.blocks
+                  .filter((b) => b.type === 'text')
+                  .map((b) => b.text)
+                  .join('. ');
+                handleSpeakBlock('ALL', allText);
+              }}
+            >
+              {speakingIdx === 'ALL' ? '⏹ Dừng đọc' : '🔊 Nghe toàn bài (Ctrl+J)'}
+            </button>
+
+            <select
+              class="tts-select tts-voice-select"
+              aria-label="Chọn giọng đọc TTS"
+              title="Chọn giọng đọc TTS"
+              value={settings.ttsVoiceURI || ''}
+              onChange={handleVoiceChange}
+            >
+              <option value="">🎙️ Giọng: Tự động ({lang})</option>
+              {voices.map((v) => (
+                <option key={v.voiceURI || v.name} value={v.voiceURI || v.name}>
+                  {v.name} ({v.lang})
+                </option>
+              ))}
+            </select>
+
+            <select
+              class="tts-select tts-rate-select tabular-nums"
+              aria-label="Tốc độ đọc TTS"
+              title="Tốc độ đọc TTS"
+              value={String(Number(settings.ttsRate || 1))}
+              onChange={handleRateChange}
+            >
+              {TTS_RATE_OPTIONS.map((r) => (
+                <option key={r} value={String(r)}>
+                  {Number.isInteger(r) ? `${r.toFixed(1)}x` : `${r}x`}
+                </option>
+              ))}
+            </select>
+
+            <button
+              type="button"
+              class="btn"
+              onClick={openTtsSettings}
+              title="Cài đặt giọng đọc (Alt+T)"
+            >
+              🎙️ Giọng đọc (Alt+T)
+            </button>
+          </div>
           <button type="button" class="btn" onClick={() => onEditNote(note)}>
             ✎ Sửa bài
           </button>

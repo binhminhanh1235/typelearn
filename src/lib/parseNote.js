@@ -288,6 +288,74 @@ export function parseNote(rawMd) {
     }
   }
 
+  // Gắn liên kết giữa khối text và khối flow (mermaid) trong cùng phân đoạn (section giữa các heading)
+  const sections = [];
+  let currentSection = { heading: null, blocks: [] };
+  sections.push(currentSection);
+
+  for (const block of blocks) {
+    if (block.type === 'heading') {
+      currentSection = { heading: block, blocks: [] };
+      sections.push(currentSection);
+    } else {
+      currentSection.blocks.push(block);
+    }
+  }
+
+  let pendingFlows = [];
+  let lastTextSectionBlocks = [];
+
+  for (const section of sections) {
+    const sectionFlows = section.blocks
+      .filter((b) => b.type === 'flow' && b.code)
+      .map((b) => b.code);
+    const activeFlows = [...pendingFlows, ...sectionFlows];
+    const sectionTextBlocks = section.blocks.filter((b) => b.type === 'text');
+
+    if (sectionTextBlocks.length > 0) {
+      for (const tb of sectionTextBlocks) {
+        if (section.heading) {
+          tb.sectionHeading = section.heading.text;
+        }
+        if (activeFlows.length > 0) {
+          // Tìm khối flow gần nhất trong cùng section nếu có nhiều flow
+          const tbIdx = section.blocks.indexOf(tb);
+          let nearestFlowCode = activeFlows[0];
+          let minDistance = Infinity;
+          section.blocks.forEach((b, idx) => {
+            if (b.type === 'flow' && b.code) {
+              const dist = Math.abs(idx - tbIdx);
+              if (dist < minDistance) {
+                minDistance = dist;
+                nearestFlowCode = b.code;
+              }
+            }
+          });
+          tb.flowCode = nearestFlowCode;
+          tb.flows = [...activeFlows];
+        } else {
+          tb.flowCode = null;
+          tb.flows = [];
+        }
+      }
+      lastTextSectionBlocks = sectionTextBlocks;
+      pendingFlows = [];
+    } else if (activeFlows.length > 0) {
+      pendingFlows = activeFlows;
+    }
+  }
+
+  // Nếu còn flow ở cuối bài chưa gắn vào section nào có text thì gắn vào các khối text cuối cùng
+  if (pendingFlows.length > 0 && lastTextSectionBlocks.length > 0) {
+    for (const tb of lastTextSectionBlocks) {
+      const mergedFlows = [...(tb.flows || []), ...pendingFlows];
+      tb.flows = mergedFlows;
+      if (!tb.flowCode) {
+        tb.flowCode = mergedFlows[0] || null;
+      }
+    }
+  }
+
   const counts = {
     text: blocks.filter((b) => b.type === 'text').length,
     flow: blocks.filter((b) => b.type === 'flow').length,

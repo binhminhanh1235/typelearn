@@ -236,6 +236,11 @@ stateDiagram-v2
     const blockTextItems = await page.locator('.reading-block-text').count();
     assert(blockTextItems === 3, `Hiển thị 3 khối văn bản đọc có nút luyện từng khối: ${blockTextItems}`);
 
+    // Kiểm tra bộ chọn Giọng đọc & Tốc độ đọc TTS trên trang Đọc
+    const noteVoiceSelect = page.locator('select[aria-label="Chọn giọng đọc TTS"]');
+    const noteRateSelect = page.locator('select[aria-label="Tốc độ đọc TTS"]');
+    assert((await noteVoiceSelect.isVisible()) && (await noteRateSelect.isVisible()), 'Trang Đọc hiển thị đầy đủ bộ chọn Giọng đọc (Voice) và Tốc độ đọc (Speed)');
+
     await page.screenshot({ path: path.join(SCREENSHOT_DIR, '05-reading-mermaid-rendered.png') });
 
     // -------------------------------------------------------------
@@ -246,6 +251,77 @@ stateDiagram-v2
     await page.click('button:has-text("⌨️ Luyện gõ ngay")');
     await page.waitForSelector('.typing-box-card');
     await page.waitForTimeout(500);
+
+    // 6.0 Kiểm tra sơ đồ Flow (Mermaid) hiển thị phía trên khung gõ và bộ chọn TTS Voice/Rate
+    console.log('  --- Test 6.0: Kiểm tra sơ đồ Flow phía trên TypingBlock & bộ chọn TTS Voice/Speed ---');
+    const typingFlowPanel = page.locator('.typing-flow-panel');
+    assert(await typingFlowPanel.isVisible(), 'Hiển thị panel sơ đồ Flow (Mermaid) ngay phía trên vùng gõ khi đoạn văn có sơ đồ đi kèm');
+    await page.waitForSelector('.typing-flow-panel .mermaid-canvas svg', { timeout: 8000 });
+    const isFlowAboveTypingBox = await page.evaluate(() => {
+      const flowRect = document.querySelector('.typing-flow-panel')?.getBoundingClientRect();
+      const boxRect = document.querySelector('.typing-box-card')?.getBoundingClientRect();
+      return Boolean(flowRect && boxRect && flowRect.bottom <= boxRect.top + 4);
+    });
+    assert(isFlowAboveTypingBox, 'Sơ đồ Flow (Mermaid) nằm đúng vị trí trực quan phía trên khung luyện gõ TypingBlock');
+
+    // Kiểm tra nút Thu gọn / Mở rộng sơ đồ không làm mất focus của ô gõ
+    const flowToggleBtn = page.locator('.typing-flow-toggle-btn');
+    assert(await flowToggleBtn.isVisible(), 'Nút Thu gọn / Hiện sơ đồ hiển thị trên thanh tiêu đề panel');
+    await page.click('.typing-box-card');
+    await flowToggleBtn.click();
+    await page.waitForTimeout(200);
+    const isFlowHidden = (await page.locator('.typing-flow-panel-body').count()) === 0;
+    const isFocusRetainedOnCollapse = await page.evaluate(() =>
+      document.activeElement?.classList.contains('typing-hidden-input')
+    );
+    assert(isFlowHidden, 'Bấm thu gọn làm ẩn nội dung sơ đồ Mermaid');
+    assert(isFocusRetainedOnCollapse, 'Bấm thu gọn sơ đồ KHÔNG làm mất focus của ô gõ .typing-hidden-input');
+
+    // Mở lại sơ đồ
+    await flowToggleBtn.click();
+    await page.waitForTimeout(200);
+    const isFlowRestored = await page.locator('.typing-flow-panel-body .mermaid-canvas svg').isVisible();
+    const isFocusRetainedOnExpand = await page.evaluate(() =>
+      document.activeElement?.classList.contains('typing-hidden-input')
+    );
+    assert(isFlowRestored, 'Bấm hiện sơ đồ khôi phục hiển thị sơ đồ Mermaid SVG');
+    assert(isFocusRetainedOnExpand, 'Bấm hiện sơ đồ tiếp tục giữ focus tại ô gõ .typing-hidden-input');
+
+    // Thử đổi tốc độ đọc TTS sang 1.25x và kiểm tra focus tự động trả về ô input gõ
+    const typingRateSelect = page.locator('select[aria-label="Tốc độ đọc TTS"]');
+    const typingVoiceSelect = page.locator('select[aria-label="Chọn giọng đọc TTS"]');
+    assert((await typingRateSelect.isVisible()) && (await typingVoiceSelect.isVisible()), 'Màn hình Gõ hiển thị bộ chọn Giọng đọc (Voice) và Tốc độ đọc (Rate)');
+    await typingRateSelect.selectOption('1.25');
+    await page.waitForTimeout(200);
+    const isInputRefocusedAfterSelect = await page.evaluate(() =>
+      document.activeElement?.classList.contains('typing-hidden-input')
+    );
+    assert(isInputRefocusedAfterSelect, 'Sau khi chọn tốc độ đọc trên dropdown, focus tự động trả về ô input luyện gõ');
+
+    const savedRateInSettings = await page.evaluate(() => {
+      const raw = localStorage.getItem('typelearn_settings');
+      return raw ? JSON.parse(raw).ttsRate : null;
+    });
+    assert(savedRateInSettings === 1.25, 'Tốc độ đọc 1.25x được lưu chính xác vào localStorage typelearn_settings');
+
+    // Kiểm tra phím tắt Ctrl/Cmd+J kích hoạt TTS với đúng rate đã chọn
+    await page.evaluate(() => {
+      window.__ttsTestCall = null;
+      const orig = window.speechSynthesis.speak.bind(window.speechSynthesis);
+      window.speechSynthesis.speak = function (u) {
+        window.__ttsTestCall = { rate: u.rate, text: u.text };
+        try { orig(u); } catch (_) {}
+      };
+    });
+    await page.keyboard.press('Control+j');
+    await page.waitForTimeout(300);
+    let ttsCall = await page.evaluate(() => window.__ttsTestCall);
+    if (!ttsCall) {
+      await page.keyboard.press('Meta+j');
+      await page.waitForTimeout(300);
+      ttsCall = await page.evaluate(() => window.__ttsTestCall);
+    }
+    assert(Boolean(ttsCall && ttsCall.rate === 1.25), `Phím tắt Ctrl+J / Cmd+J kích hoạt TTS với đúng tốc độ 1.25x (thực tế: ${ttsCall?.rate}x)`);
 
     // Đảm bảo input được focus
     await page.click('.typing-box-card');
