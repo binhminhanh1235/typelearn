@@ -176,7 +176,16 @@ export function speakText(text, options = {}) {
       ? Math.min(1, Math.max(0, Number(options.volume ?? profile.volume)))
       : 1;
 
-    const voice = selectBestVoice(lang, voiceURI || voiceName || savedVoice);
+    const pickVoice = (uri) => {
+      const v = uri ? selectBestVoice(lang, uri) : null;
+      const prefix = lang.toLowerCase().split('-')[0];
+      return v && String(v.lang).toLowerCase().startsWith(prefix) ? v : null;
+    };
+    // Bỏ qua giọng đã chọn nếu khác ngôn ngữ của đoạn văn
+    const voice =
+      pickVoice(voiceURI || voiceName) ||
+      pickVoice(savedVoice) ||
+      selectBestVoice(lang, '');
     if (voice) {
       utterance.voice = voice;
       utterance.lang = voice.lang || lang;

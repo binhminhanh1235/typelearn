@@ -808,8 +808,9 @@ a {
 }
 
 .typing-workspace.has-flow {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: start;
   gap: 18px;
 }
 
@@ -1048,7 +1049,7 @@ kbd {
 }
 
 /* Responsive Mobile */
-@media (max-width: 700px) {
+@media (max-width: 900px) {
   .typing-workspace.has-flow {
     grid-template-columns: minmax(0, 1fr);
   }
